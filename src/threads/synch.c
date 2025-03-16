@@ -216,8 +216,24 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread *t = thread_current();
+  t->waiting_lock = lock;
+  int8_t depth = 0;
+  while (t->waiting_lock != NULL && t->waiting_lock->holder != NULL && depth++ < 8) {
+    if (t->waiting_lock->priority < t->priority) {
+      t->waiting_lock->priority = t->priority;
+    }
+    if (t->waiting_lock->holder->priority < t->priority) {
+      t->waiting_lock->holder->priority = t->priority; 
+    }
+    t = t->waiting_lock->holder;
+  }
+
   sema_down (&lock->semaphore);
-  lock->holder = thread_current ();
+  t = thread_current();
+  lock->holder = t;
+  t->waiting_lock = NULL;
+  list_push_back(&t->holding_locks, &lock->elem);
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -250,6 +266,19 @@ lock_release (struct lock *lock)
 {
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
+
+  struct thread *t = thread_current();
+  list_remove(&lock->elem);
+  if (list_empty(&t->holding_locks)) {
+    t->priority = t->old_priority;
+  } else {
+    struct lock *max = list_entry(list_max(&t->holding_locks, lock_cmp, NULL), struct lock, elem);
+    if (max->priority > t->old_priority) {
+      t->priority = max->priority;
+    } else {
+      t->priority = t->old_priority;
+    }
+  }
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
