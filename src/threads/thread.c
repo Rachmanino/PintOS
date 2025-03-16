@@ -200,6 +200,9 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  if (thread_current()->priority < t->priority) {
+    thread_yield();
+  }
 
   return tid;
 }
@@ -219,6 +222,14 @@ thread_block (void)
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
+
+bool 
+thread_cmp(const struct list_elem *a, const struct list_elem *b, void *aux) {
+  struct thread *ta = list_entry(a, struct thread, elem);
+  struct thread *tb = list_entry(b, struct thread, elem);
+  return ta->priority < tb->priority;
+}
+
 
 /** Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
@@ -335,7 +346,17 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *t = thread_current();
+  t->old_priority = new_priority;
+  if (list_empty(&t->holding_locks) || new_priority > t->priority) {
+    t->priority = new_priority;
+  }
+  if (!list_empty(&ready_list)) {
+    struct thread *max = list_entry(list_max(&ready_list, thread_cmp, NULL), struct thread, elem);
+    if (max->priority > t->priority) {
+      thread_yield();
+    }
+  }
 }
 
 /** Returns the current thread's priority. */
@@ -463,6 +484,9 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init(&t->holding_locks);
+  t->waiting_lock = NULL;
+  t->old_priority = priority;
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
@@ -492,8 +516,12 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else {
+    //return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    struct list_elem *max = list_max(&ready_list, thread_cmp, NULL);
+    list_remove(max);
+    return list_entry(max, struct thread, elem);
+  }
 }
 
 /** Completes a thread switch by activating the new thread's page

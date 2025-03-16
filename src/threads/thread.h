@@ -93,6 +93,12 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
 
+    /* Utility for priority donation */
+    int old_priority;                   /**< Original priority before donation */
+    struct list holding_locks;     /**< Locks held by the thread. */
+    struct lock *waiting_lock;          /**< Lock that the thread is waiting for. */
+    // Every thread can only acquire 1 lock, but holding >1 locks.
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -115,6 +121,9 @@ void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
+
+bool 
+thread_cmp(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
