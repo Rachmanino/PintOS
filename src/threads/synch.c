@@ -267,6 +267,8 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  lock->holder = NULL;
+
   struct thread *t = thread_current();
   list_remove(&lock->elem);
   if (list_empty(&t->holding_locks)) {
@@ -280,8 +282,8 @@ lock_release (struct lock *lock)
     }
   }
 
-  lock->holder = NULL;
   sema_up (&lock->semaphore);
+  thread_yield();
 }
 
 /** Returns true if the current thread holds LOCK, false
@@ -344,7 +346,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  list_push_back(&cond->waiters, &waiter.elem);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -355,8 +357,8 @@ bool
 cond_cmp(const struct list_elem *a, const struct list_elem *b, void *aux) {
   struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
   struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
-  struct thread *ta = list_entry(list_max(&sa->semaphore.waiters, thread_cmp, NULL), struct thread, elem);
-  struct thread *tb = list_entry(list_max(&sb->semaphore.waiters, thread_cmp, NULL), struct thread, elem);
+  struct thread *ta = list_entry(list_front(&sa->semaphore.waiters), struct thread, elem);
+  struct thread *tb = list_entry(list_front(&sb->semaphore.waiters), struct thread, elem);
   return ta->priority < tb->priority;
 }
 
@@ -376,11 +378,10 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) {
-    struct list_elem* max = list_max (&cond->waiters, cond_cmp, NULL);
-    list_remove (max);
+    struct list_elem* max = list_max(&cond->waiters, cond_cmp, NULL);
+    list_remove(max);
     sema_up (&list_entry (max, struct semaphore_elem, elem)->semaphore);
   }
-      
 }
 
 /** Wakes up all threads, if any, waiting on COND (protected by
