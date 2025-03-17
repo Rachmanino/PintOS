@@ -484,10 +484,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-  list_init(&t->holding_locks);
-  t->waiting_lock = NULL;
-  t->old_priority = priority;
-
+  if (!thread_mlfqs) {
+    list_init(&t->holding_locks);
+    t->waiting_lock = NULL;
+    t->old_priority = priority;
+  }
+  
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -514,13 +516,15 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
-    return idle_thread;
-  else {
-    //return list_entry (list_pop_front (&ready_list), struct thread, elem);
-    struct list_elem *max = list_max(&ready_list, thread_cmp, NULL);
-    list_remove(max);
-    return list_entry(max, struct thread, elem);
+  if (!thread_mlfqs) {
+    if (list_empty (&ready_list))
+      return idle_thread;
+    else {
+      //return list_entry (list_pop_front (&ready_list), struct thread, elem);
+      struct list_elem *max = list_max(&ready_list, thread_cmp, NULL);
+      list_remove(max);
+      return list_entry(max, struct thread, elem);
+    }
   }
 }
 
