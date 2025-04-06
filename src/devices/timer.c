@@ -96,14 +96,10 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-/** **/
 bool
-wakeup_time_cmp (const struct list_elem *a, const struct list_elem *b, void *aux) {
+wakeup_time_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread_sleep *ta = list_entry(a, struct thread_sleep, elem);
   struct thread_sleep *tb = list_entry(b, struct thread_sleep, elem);
-  if (ta->wakeup_time == tb->wakeup_time) {
-    return ta->t->priority < tb->t->priority;
-  }
   return ta->wakeup_time < tb->wakeup_time;
 }
 
@@ -113,7 +109,7 @@ void
 timer_sleep (int64_t ticks) 
 {
   // int64_t start = timer_ticks ();
-  if (ticks < 0) return;
+  if (ticks <= 0) return;
 
   ASSERT (intr_get_level () == INTR_ON);
   // while (timer_elapsed (start) < ticks) 
@@ -201,19 +197,18 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  ASSERT (intr_get_level () == INTR_OFF);
   ticks++;
   thread_tick ();
   struct list_elem* p = list_begin(&thread_sleep_list);
   while (p != list_end(&thread_sleep_list)) {
     struct thread_sleep* cur_sleep = list_entry(p, struct thread_sleep, elem);
     if (cur_sleep->wakeup_time <= ticks) {
-      list_remove(p);
+      p = list_remove(p);
       thread_unblock(cur_sleep->t);
-      if (thread_current()->priority < cur_sleep->t->priority) {
+      if (cur_sleep->t->priority >= thread_current()->priority)
         intr_yield_on_return();
-      }
-      p = list_next(p);
-    } else break;
+    } else break; // Since the list is ordered, we can break here
   }
 }
 

@@ -193,7 +193,7 @@ lock_init (struct lock *lock)
 }
 
 bool
-lock_cmp (const struct list_elem *a, const struct list_elem *b, void *aux) {
+lock_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct lock *la = list_entry(a, struct lock, elem);
   struct lock *lb = list_entry(b, struct lock, elem);
   struct thread *ta = la->holder;
@@ -288,8 +288,9 @@ lock_release (struct lock *lock)
     }
   }
   sema_up (&lock->semaphore);
-  if (!thread_mlfqs)
-    thread_yield();
+  if (!thread_mlfqs && schedule_started) {
+    thread_yield(); // not in an interrupt handler
+  }
 }
 
 /** Returns true if the current thread holds LOCK, false
@@ -360,7 +361,7 @@ cond_wait (struct condition *cond, struct lock *lock)
 
 /** To ensure the semaphore that has a waiter with higher priority to be `sema_up` **/
 bool
-cond_cmp(const struct list_elem *a, const struct list_elem *b, void *aux) {
+cond_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
   struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);
   struct thread *ta = list_entry(list_front(&sa->semaphore.waiters), struct thread, elem);

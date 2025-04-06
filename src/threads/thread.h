@@ -4,6 +4,10 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
+#include "userprog/process.h"
+
+extern bool schedule_started; // true if the scheduler has started
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -99,9 +103,14 @@ struct thread
     struct lock *waiting_lock;          /**< Lock that the thread is waiting for. */
     // Every thread can only acquire 1 lock, but holding >1 locks.
 
+    /* Values for mlqfs */
+    int nice;                           /**< Nice value for mlfqs. */
+    fixed_point recent_cpu;             /**< Recent CPU for mlfqs. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
+    struct process *process;            /**< Corresponding process structure defined in "process.h". */
 #endif
 
     /* Owned by thread.c. */

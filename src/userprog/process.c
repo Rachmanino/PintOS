@@ -17,40 +17,120 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/synch.h"
 
-static thread_func start_process NO_RETURN;
+static thread_func start_process;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+struct parsed_cmd
+  {
+    char file_name[MAX_ARGUMENT_LENGTH];
+    char argv[MAX_ARG_NUM][MAX_ARGUMENT_LENGTH]; // argv[0] is the file name
+    int argc;
+    struct semaphore load_finished; // Semaphore to wait for the process to finish loading
+    bool load_success; // Whether the process loaded successfully
+  };
+
+static struct list all_process; // List of all processes  
+
+void process_init() {
+  list_init(&all_process);
+}
+
+void 
+init_process (struct thread* t) {
+  struct process *p = palloc_get_page (0);
+  ASSERT(p != NULL);
+  t->process = p;
+  t->process->thread = t;
+  t->process->exit_status = -1;
+  list_init(&t->process->child_list);
+  list_push_back(&all_process, &t->process->elem); // Add the process to the list of all processes
+
+  sema_init(&t->process->death, 0); // Initialize the semaphore for waiting for the process to finish
+}
+
+/** Parse a command line into tokens split by spaces. **/
+void *
+parse_cmd (const char* cmdline, struct parsed_cmd *cmd)
+{
+  char *token, *save_ptr;
+  for (token = strtok_r (cmdline, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr))
+    {
+      if (cmd->argc == 0)
+        strlcpy (cmd->file_name, token, strlen(token) + 1); // First token is the file name
+      strlcpy(cmd->argv[cmd->argc], token, strlen(token) + 1);
+      cmd->argc++;
+    }
+}
+
+struct process* get_process(tid_t tid) {;
+  for (struct list_elem *e = list_begin(&all_process); e != list_end(&all_process); e = list_next(e)) {
+    struct process *p = list_entry(e, struct process, elem);
+    if (p->thread->tid == tid) {
+      return p;
+    }
+  }
+  return NULL;
+}
+
+struct process* get_child_process(tid_t tid) {
+  struct thread *cur = thread_current ();
+  for (struct list_elem *e = list_begin(&cur->process->child_list); e != list_end(&cur->process->child_list); e = list_next(e)) {
+    struct process *p = list_entry(e, struct process, child_elem);
+    if (p->thread->tid == tid) {
+      return p;
+    }
+  }
+  return NULL;
+}
 
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *cmdline) 
 {
-  char *fn_copy;
+  struct parsed_cmd *cmd;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  cmd = palloc_get_page (0);
+  if (cmd == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
-
+  parse_cmd (cmdline, cmd);
+  sema_init(&cmd->load_finished, 0); // Initialize the semaphore
+  cmd->load_success = false; 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
-  return tid;
+  tid = thread_create (cmd->file_name, PRI_DEFAULT, start_process, cmd);
+  if (tid == TID_ERROR) {
+    palloc_free_page(cmd);
+    return TID_ERROR;
+  } else {
+    sema_down(&cmd->load_finished); // Wait for the load to finisH
+    if (!cmd->load_success) {
+      palloc_free_page(cmd);
+      return TID_ERROR; // Load failed
+    } else {      
+      struct process *p = get_process(tid), *cur = thread_current()->process;
+      p->parent = cur; // Set the parent process
+      if (thread_current()->tid != 1) {
+        list_push_back(&cur->child_list, &p->child_elem); // For the initial process, we don't need to add it to the list of child processes
+      }
+      palloc_free_page(cmd); // Free the command structure
+      return tid;
+    }
+  }
 }
 
 /** A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *cmd_)
 {
-  char *file_name = file_name_;
+  struct parsed_cmd *cmd = cmd_;
   struct intr_frame if_;
   bool success;
 
@@ -59,13 +139,83 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmd->file_name, &if_.eip, &if_.esp);
+  cmd->load_success = success; // Set the load success flag
 
-  /* If load failed, quit. */
-  palloc_free_page (file_name);
-  if (!success) 
+  if (success) {
+    // uint32_t top = (uint32_t)PHYS_BASE;
+    // uint32_t* argv_ptrs[MAX_ARG_NUM];
+    // memset(argv_ptrs, 0, sizeof(argv_ptrs));
+    // // 1. Push arg strings
+    // for (int i = cmd->argc - 1; i >= 0; i--) {
+    //   top -= strlen(cmd->argv[i])+1;
+    //   strlcpy(top, cmd->argv[i], strlen(cmd->argv[i])+1);
+    //   argv_ptrs[i] = top; // Store the pointer to the string
+    // }
+    // // 2. Align to 4 bytes
+    // top -= top % 4; 
+    // // 3. Push argv_ptrs
+    // for (int i = cmd->argc; i >= 0; i--) {
+    //   top -= 4;
+    //   *(uint32_t**)top = argv_ptrs[i]; // Push the pointer to the string
+    // }
+    // // 4. Push ptr to argv_ptrs
+    // top -= 4;
+    // *(uint32_t**)top = top + 4; // Push the pointer to the argv_ptrs
+    // // 5. Push argc
+    // top -= 4;
+    // *(int*)top = cmd->argc;
+    // // 6. Push return address (fake)  
+    // top -= 4;
+    // *(void**)top = NULL; // Push the return address (fake)
+    // // 7. Set esp to the top of the stack
+    // if_.esp = (void*)top;
+    // sema_up(&cmd->load_finished); // Signal that the load has finished
+    uint32_t top = (uint32_t) PHYS_BASE;
+    int argc = cmd->argc;
+    char* argv[MAX_ARG_NUM];
+    for (int i = argc - 1; i >= 0; i--)
+    {
+      /* Include terminating '\0'. */
+      size_t len = strlen (cmd->argv[i]) + 1;
+      top -= len;
+      strlcpy ((char *)top, cmd->argv[i], len);
+
+      /* Set argv[i] for later loading. */
+      argv[i] = (char *)top;
+    }
+    top -= top % sizeof (void *);
+
+    /* Load ARGV[i], including the terminating NULL */
+    for (int i = argc; i >= 0; i--)
+      {
+        top -= sizeof (char *);
+        *(char **)top = argv[i];
+      }
+    
+    /* Load ARGV */
+    char **pargv = (char **)top;
+    top -= sizeof (char **);
+    *(char ***)top = pargv;
+
+    /* Load ARGC */
+    top -= sizeof (int);
+    *(int *)top = cmd->argc;
+
+    /* Load dummy return address */
+    top -= sizeof (void *);
+    *(void **)top = NULL;
+
+    if_.esp= (void *) top;
+    sema_up(&cmd->load_finished); // Signal that the load has finished
+  } else {
+    /* If load failed, exit the thread. */
+    sema_up(&cmd->load_finished); // Signal that the load has finished
     thread_exit ();
+  }
 
+  // PANIC("fn: %s, argc: %d\n", cmd->file_name, cmd->argc); // Debugging info
+  
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -86,9 +236,27 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  if (child_tid == TID_ERROR) {
+    return -1; // Invalid child process
+  }
+  struct process *child;
+  
+  if (thread_current()->tid==1) {
+    child = get_process(child_tid);
+  } else {
+    child = get_child_process(child_tid);
+  }
+ 
+  sema_down(&child->death); // Wait for the child process to finish
+  if (thread_current()->tid!=1) {
+    list_remove(&child->child_elem);
+  }
+  list_remove(&child->elem); // Remove the child process from the list of all processes
+  int exit_status = child->exit_status; 
+  palloc_free_page(child); 
+  return exit_status; 
 }
 
 /** Free the current process's resources. */
@@ -101,8 +269,9 @@ process_exit (void)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
-  if (pd != NULL) 
+  if (pd != NULL) // User process
     {
+      printf("%s: exit(%d)\n", cur->name, cur->process->exit_status);
       /* Correct ordering here is crucial.  We must set
          cur->pagedir to NULL before switching page directories,
          so that a timer interrupt can't switch back to the
@@ -114,6 +283,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+    // Signal the parent process that this process has exited
+    sema_up(&cur->process->death); // Signal the parent process that this process has exited
 }
 
 /** Sets up the CPU for running user code in the current
