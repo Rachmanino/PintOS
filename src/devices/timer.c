@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
 
 #include <list.h>
   
@@ -96,7 +97,7 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
-bool
+static bool
 wakeup_time_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread_sleep *ta = list_entry(a, struct thread_sleep, elem);
   struct thread_sleep *tb = list_entry(b, struct thread_sleep, elem);

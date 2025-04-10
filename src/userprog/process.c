@@ -18,20 +18,10 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "threads/malloc.h"
 
 static thread_func start_process;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
-struct parsed_cmd
-  {
-    char file_name[MAX_ARGUMENT_LENGTH+1];
-    char argv[MAX_ARG_NUM][MAX_ARGUMENT_LENGTH+1]; // argv[0] is the file name
-    int argc;
-    struct semaphore load_finished; // Semaphore to wait for the process to finish loading
-    bool load_success; // Whether the process loaded successfully
-  };
-
-static struct list all_process; // List of all processes  
 
 /* Initialize the process module. */
 void process_init() {
@@ -58,6 +48,7 @@ init_process (struct thread* t) {
   t->process = p;
   t->process->thread = t;
   t->process->exit_status = -1;
+  t->process->pid = t->tid; // Set the process ID to the thread ID
   list_init(&t->process->child_list);
   list_push_back(&all_process, &t->process->elem); // Add the process to the list of all processes
 
@@ -68,7 +59,7 @@ init_process (struct thread* t) {
 }
 
 /* Parse a command line into struct `parsed_cmd`. */
-void *
+void
 parse_cmd (char* cmdline, struct parsed_cmd *cmd)
 {
   char *token, *save_ptr;
@@ -85,7 +76,7 @@ parse_cmd (char* cmdline, struct parsed_cmd *cmd)
 struct process* get_process(tid_t tid) {;
   for (struct list_elem *e = list_begin(&all_process); e != list_end(&all_process); e = list_next(e)) {
     struct process *p = list_entry(e, struct process, elem);
-    if (p->thread->tid == tid) {
+    if (p->pid == tid) {
       return p;
     }
   }
@@ -98,7 +89,7 @@ struct process* get_child_process(tid_t tid) {
   struct thread *cur = thread_current ();
   for (struct list_elem *e = list_begin(&cur->process->child_list); e != list_end(&cur->process->child_list); e = list_next(e)) {
     struct process *p = list_entry(e, struct process, child_elem);
-    if (p->thread->tid == tid) {
+    if (p->pid == tid) {
       return p;
     }
   }
@@ -132,7 +123,7 @@ process_execute (const char *cmdline)
     palloc_free_page(cmd);
     return TID_ERROR;
   } else {
-    sema_down(&cmd->load_finished); // Wait for the load to finisH
+    sema_down(&cmd->load_finished); // Wait for the load to finish
     if (!cmd->load_success) {
       palloc_free_page(cmd);
       return TID_ERROR; // Load failed
@@ -176,36 +167,34 @@ start_process (void *cmd_)
     // 1. Push arg strings
     for (int i = cmd->argc - 1; i >= 0; i--) {
       top -= strlen(cmd->argv[i])+1;
-      strlcpy(top, cmd->argv[i], strlen(cmd->argv[i])+1);
-      argv_ptrs[i] = top; // Store the pointer to the string
+      strlcpy((char*)top, cmd->argv[i], strlen(cmd->argv[i])+1);
+      argv_ptrs[i] = (uint32_t*)top; 
     }
     // 2. Align to 4 bytes
     top -= top % 4; 
     // 3. Push argv_ptrs
     for (int i = cmd->argc; i >= 0; i--) {
       top -= 4;
-      *(uint32_t**)top = argv_ptrs[i]; // Push the pointer to the string
+      *(uint32_t**)top = argv_ptrs[i]; 
     }
     // 4. Push ptr to argv_ptrs
     top -= 4;
-    *(uint32_t**)top = top + 4; // Push the pointer to the argv_ptrs
+    *(uint32_t**)top = (uint32_t*)(top + 4); 
     // 5. Push argc
     top -= 4;
     *(int*)top = cmd->argc;
     // 6. Push return address (fake)  
     top -= 4;
-    *(void**)top = NULL; // Push the return address (fake)
+    *(void**)top = NULL; 
     // 7. Set return value to %esp
     if_.esp= (void *) top;
 
     sema_up(&cmd->load_finished); // Signal that the load has finished
   } else {
     /* If load failed, exit the thread. */
-    sema_up(&cmd->load_finished); // Signal that the load has finished
+    sema_up(&cmd->load_finished); 
     thread_exit ();
   }
-
-  // PANIC("fn: %s, argc: %d\n", cmd->file_name, cmd->argc); // Debugging info
   
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -281,8 +270,17 @@ process_exit (void)
       pagedir_destroy (pd);
     }
 
+  lock_acquire(&global_file_lock);
+  for (struct list_elem *e = list_begin(&cur->process->open_files); e != list_end(&cur->process->open_files);) {
+    struct open_file *f = list_entry(e, struct open_file, elem);
+    file_close(f->file); // file_close() will call file_allow_write()
+    e = list_remove(e);
+    free(f); // Free the open file structure
+  }
+  lock_release(&global_file_lock);
+  
   // Signal the parent process that this process has exited
-  sema_up(&cur->process->death); // Signal the parent process that this process has exited
+  sema_up(&cur->process->death); 
 }
 
 /** Sets up the CPU for running user code in the current

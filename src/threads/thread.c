@@ -136,7 +136,8 @@ thread_start (void)
 }
 
 /* Functions for updating&recalculating priority in mlqfs. */
-void update_priority_mlfqs(struct thread *t, void *aux) {
+static void 
+update_priority_mlfqs(struct thread *t, void *aux UNUSED) {
   if (t == idle_thread) return;
   t->priority = ftoi_rnear(itof(PRI_MAX) - fidiv(t->recent_cpu, 4) - itof(2*t->nice));
   if (t->priority < PRI_MIN) {
@@ -146,13 +147,15 @@ void update_priority_mlfqs(struct thread *t, void *aux) {
   }
 }
 
-void update_recent_cpu_mlfqs(struct thread *t, void *aux) {
+static void 
+update_recent_cpu_mlfqs(struct thread *t, void *aux UNUSED) {
   if (t == idle_thread) return;
   fixed_point factor = ffdiv(fimul(load_avg, 2), fiadd(fimul(load_avg, 2), 1));
   t->recent_cpu = fiadd(ffmul(factor, t->recent_cpu), t->nice);
 }
 
-void update_load_avg_mlfqs() {
+static void 
+update_load_avg_mlfqs(void) {
   int ready_threads = list_size(&ready_list);
   if (thread_current() != idle_thread) {
     ready_threads++;
@@ -293,7 +296,7 @@ thread_block (void)
 }
 
 bool 
-thread_cmp(const struct list_elem *a, const struct list_elem *b, void *aux) {
+thread_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *ta = list_entry(a, struct thread, elem);
   struct thread *tb = list_entry(b, struct thread, elem);
   return ta->priority < tb->priority;

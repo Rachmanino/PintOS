@@ -192,7 +192,7 @@ lock_init (struct lock *lock)
   sema_init (&lock->semaphore, 1);
 }
 
-bool
+static bool
 lock_cmp (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct lock *la = list_entry(a, struct lock, elem);
   struct lock *lb = list_entry(b, struct lock, elem);
@@ -360,7 +360,7 @@ cond_wait (struct condition *cond, struct lock *lock)
 }
 
 /** To ensure the semaphore that has a waiter with higher priority to be `sema_up` **/
-bool
+static bool
 cond_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct semaphore_elem *sa = list_entry(a, struct semaphore_elem, elem);
   struct semaphore_elem *sb = list_entry(b, struct semaphore_elem, elem);

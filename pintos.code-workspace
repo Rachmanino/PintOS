@@ -25,7 +25,9 @@
 			"flags.h": "c",
 			"pagedir.h": "c",
 			"lib.h": "c",
-			"main.h": "c"
+			"main.h": "c",
+			"syn-write.h": "c",
+			"*.inc": "c"
 		},
 		"C_Cpp.default.cStandard": "gnu99",
 		"C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
