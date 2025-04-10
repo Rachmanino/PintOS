@@ -1,1 +1,3 @@
 src/*.bz2
+.vscode/
+*-workspace
