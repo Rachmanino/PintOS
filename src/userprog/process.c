@@ -59,7 +59,7 @@ init_process (struct thread* t) {
 }
 
 /* Parse a command line into struct `parsed_cmd`. */
-void
+static void
 parse_cmd (char* cmdline, struct parsed_cmd *cmd)
 {
   char *token, *save_ptr;
@@ -73,7 +73,8 @@ parse_cmd (char* cmdline, struct parsed_cmd *cmd)
 }
 
 /* Find a process with its tid, return NULL if failed. */
-struct process* get_process(tid_t tid) {;
+static struct process* 
+get_process(tid_t tid) {;
   for (struct list_elem *e = list_begin(&all_process); e != list_end(&all_process); e = list_next(e)) {
     struct process *p = list_entry(e, struct process, elem);
     if (p->pid == tid) {
@@ -85,7 +86,8 @@ struct process* get_process(tid_t tid) {;
 
 /* Find one of current process's child processes with its tid, 
 return NULL if failed. */
-struct process* get_child_process(tid_t tid) {
+static struct process* 
+get_child_process(tid_t tid) {
   struct thread *cur = thread_current ();
   for (struct list_elem *e = list_begin(&cur->process->child_list); e != list_end(&cur->process->child_list); e = list_next(e)) {
     struct process *p = list_entry(e, struct process, child_elem);

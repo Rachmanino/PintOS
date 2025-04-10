@@ -47,16 +47,10 @@ struct open_file* get_open_file(struct process *p, int fd);
 
 void process_init (void); // Initialize the process module
 void init_process(struct thread *t); // Initialize a process instance
+
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
-
-/* Parse a command line into struct `parsed_cmd`. */
-void parse_cmd (char* cmdline, struct parsed_cmd *cmd);
-
-struct process* get_process(tid_t tid);
-struct process* get_child_process(tid_t tid);
-
 
 #endif /**< userprog/process.h */
